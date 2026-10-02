@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Bloques</title>
+<style>
+  :root {
+    --bg: #0f1424;
+    --panel: #182036;
+    --line: #26304d;
+    --text: #e8ecf6;
+    --muted: #8a94b3;
+    --accent: #f7941f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 28px;
+    letter-spacing: 6px;
+    color: var(--accent);
+    transition: color .4s;
+  }
+  .game {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .board-wrap {
+    position: relative;
+    border: 3px solid var(--accent);
+    border-radius: 6px;
+    transition: border-color .4s;
+    line-height: 0;
+  }
+  #board {
+    display: block;
+    width: min(300px, 62vw);
+    height: auto;
+    background: #0a0e1a;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(10, 14, 26, .85);
+    line-height: 1.3;
+    text-align: center;
+    padding: 16px;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0; font-size: 24px; }
+  .overlay p { margin: 0; color: var(--muted); font-size: 14px; }
+  button {
+    font: inherit;
+    background: var(--accent);
+    color: #1a1a1a;
+    border: 0;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 120px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+  }
+  .card .value {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  #next { display: block; width: 96px; height: 96px; margin-top: 4px; }
+  .help {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .help kbd {
+    background: var(--line);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .touch {
+    display: none;
+    margin-top: 16px;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .touch button {
+    width: 64px;
+    height: 56px;
+    font-size: 22px;
+    padding: 0;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+  }
+  @media (hover: none), (max-width: 600px) {
+    .touch { display: flex; }
+    .help { display: none; }
+    .side { width: 96px; }
+  }
+</style>
+</head>
+<body>
+  <h1>BLOQUES</h1>
+
+  <div class="game">
+    <div class="board-wrap">
+      <canvas id="board" width="300" height="600"></canvas>
+      <div class="overlay" id="overlay">
+        <h2 id="overlay-title">Bloques</h2>
+        <p id="overlay-text">Completa líneas para subir de nivel.</p>
+        <button id="start">Jugar</button>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <div class="label">Siguiente</div>
+        <canvas id="next" width="96" height="96"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Puntos</div>
+        <div class="value" id="score">0</div>
+      </div>
+      <div class="card">
+        <div class="label">Líneas</div>
+        <div class="value" id="lines">0</div>
+      </div>
+      <div class="card">
+        <div class="label">Nivel</div>
+        <div class="value" id="level">1</div>
+      </div>
+      <div class="card">
+        <div class="label">Récord</div>
+        <div class="value" id="best">0</div>
+      </div>
+      <div class="help">
+        <kbd>←</kbd> <kbd>→</kbd> mover<br>
+        <kbd>↑</kbd> girar<br>
+        <kbd>↓</kbd> bajar<br>
+        <kbd>Espacio</kbd> soltar<br>
+        <kbd>P</kbd> pausa
+      </div>
+    </div>
+  </div>
+
+  <div class="touch">
+    <button data-action="left">◀</button>
+    <button data-action="rotate">⟳</button>
+    <button data-action="right">▶</button>
+    <button data-action="down">▼</button>
+    <button data-action="drop">⤓</button>
+    <button data-action="pause">❚❚</button>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const COLS = 10;
+  const ROWS = 20;
+  const BLOCK = 30;
+  const LINES_PER_LEVEL = 5;
+  const LINE_POINTS = [0, 100, 300, 500, 800];
+
+  const LEVELS = [
+    { speed: 800, accent: '#f7941f' },
+    { speed: 550, accent: '#519fd7' },
+  ];
+
+  const COLORS = {
+    I: '#3fc7e8',
+    O: '#f2d03b',
+    T: '#a463e0',
+    S: '#5ccf6a',
+    Z: '#e8514a',
+    J: '#3d6fe0',
+    L: '#f0923a',
+  };
+
+  // Rotation states for each piece, as [x, y] cells.
+  const PIECES = {
+    I: [
+      [[0, 1], [1, 1], [2, 1], [3, 1]],
+      [[2, 0], [2, 1], [2, 2], [2, 3]],
+      [[0, 2], [1, 2], [2, 2], [3, 2]],
+      [[1, 0], [1, 1], [1, 2], [1, 3]],
+    ],
+    O: [
+      [[1, 0], [2, 0], [1, 1], [2, 1]],
+      [[1, 0], [2, 0], [1, 1], [2, 1]],
+      [[1, 0], [2, 0], [1, 1], [2, 1]],
+      [[1, 0], [2, 0], [1, 1], [2, 1]],
+    ],
+    T: [
+      [[1, 0], [0, 1], [1, 1], [2, 1]],
+      [[1, 0], [1, 1], [2, 1], [1, 2]],
+      [[0, 1], [1, 1], [2, 1], [1, 2]],
+      [[1, 0], [0, 1], [1, 1], [1, 2]],
+    ],
+    S: [
+      [[1, 0], [2, 0], [0, 1], [1, 1]],
+      [[1, 0], [1, 1], [2, 1], [2, 2]],
+      [[1, 1], [2, 1], [0, 2], [1, 2]],
+      [[0, 0], [0, 1], [1, 1], [1, 2]],
+    ],
+    Z: [
+      [[0, 0], [1, 0], [1, 1], [2, 1]],
+      [[2, 0], [1, 1], [2, 1], [1, 2]],
+      [[0, 1], [1, 1], [1, 2], [2, 2]],
+      [[1, 0], [0, 1], [1, 1], [0, 2]],
+    ],
+    J: [
+      [[0, 0], [0, 1], [1, 1], [2, 1]],
+      [[1, 0], [2, 0], [1, 1], [1, 2]],
+      [[0, 1], [1, 1], [2, 1], [2, 0]],
+      [[1, 0], [1, 1], [0, 2], [1, 2]],
+    ],
+    L: [
+      [[2, 0], [0, 1], [1, 1], [2, 1]],
+      [[1, 0], [1, 1], [1, 2], [2, 2]],
+      [[0, 1], [1, 1], [2, 1], [0, 2]],
+      [[0, 0], [1, 0], [1, 1], [1, 2]],
+    ],
+  };
+
+  const KICKS = [0, -1, 1, -2, 2];
+
+  const boardCanvas = document.getElementById('board');
+  const ctx = boardCanvas.getContext('2d');
+  const nextCanvas = document.getElementById('next');
+  const nextCtx = nextCanvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const overlayText = document.getElementById('overlay-text');
+  const startBtn = document.getElementById('start');
+  const scoreEl = document.getElementById('score');
+  const linesEl = document.getElementById('lines');
+  const levelEl = document.getElementById('level');
+  const bestEl = document.getElementById('best');
+
+  let grid;
+  let current;
+  let nextType;
+  let bag = [];
+  let score;
+  let lines;
+  let level;
+  let best = loadBest();
+  let dropInterval;
+  let dropCounter = 0;
+  let lastTime = 0;
+  let state = 'idle'; // idle | playing | paused | over
+
+  function loadBest() {
+    try {
+      return Number(localStorage.getItem('bloques.best')) || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function saveBest() {
+    try {
+      localStorage.setItem('bloques.best', String(best));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function emptyGrid() {
+    return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  }
+
+  function nextFromBag() {
+    if (bag.length === 0) {
+      bag = Object.keys(PIECES);
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+    }
+    return bag.pop();
+  }
+
+  function cells(piece) {
+    return PIECES[piece.type][piece.rot].map(([x, y]) => [piece.x + x, piece.y + y]);
+  }
+
+  function collides(piece) {
+    return cells(piece).some(([x, y]) =>
+      x < 0 || x >= COLS || y >= ROWS || (y >= 0 && grid[y][x])
+    );
+  }
+
+  function spawn() {
+    const type = nextType || nextFromBag();
+    nextType = nextFromBag();
+    current = { type, rot: 0, x: 3, y: type === 'I' ? -1 : 0 };
+    if (collides(current)) {
+      gameOver();
+    }
+  }
+
+  function applyLevel() {
+    const config = LEVELS[level - 1] || {};
+    dropInterval = config.speed;
+    document.documentElement.style.setProperty('--accent', config.accent);
+    levelEl.textContent = level;
+  }
+
+  function move(dx, dy) {
+    const moved = { ...current, x: current.x + dx, y: current.y + dy };
+    if (collides(moved)) return false;
+    current = moved;
+    return true;
+  }
+
+  function rotate() {
+    const rot = (current.rot + 1) % 4;
+    for (const dx of KICKS) {
+      const rotated = { ...current, rot, x: current.x + dx };
+      if (!collides(rotated)) {
+        current = rotated;
+        return;
+      }
+    }
+  }
+
+  function softDrop() {
+    if (move(0, 1)) {
+      score += 1;
+    } else {
+      lock();
+    }
+    dropCounter = 0;
+  }
+
+  function hardDrop() {
+    let distance = 0;
+    while (move(0, 1)) distance++;
+    score += distance * 2;
+    lock();
+    dropCounter = 0;
+  }
+
+  function lock() {
+    for (const [x, y] of cells(current)) {
+      if (y < 0) {
+        gameOver();
+        return;
+      }
+      grid[y][x] = current.type;
+    }
+    clearLines();
+    if (state === 'playing') spawn();
+  }
+
+  function clearLines() {
+    let cleared = 0;
+    for (let y = ROWS - 1; y >= 0; y--) {
+      if (grid[y].every(Boolean)) {
+        grid.splice(y, 1);
+        grid.unshift(Array(COLS).fill(null));
+        cleared++;
+        y++;
+      }
+    }
+    if (cleared === 0) return;
+
+    lines += cleared;
+    score += LINE_POINTS[cleared] * level;
+
+    const newLevel = Math.floor(lines / LINES_PER_LEVEL) + 1;
+    if (newLevel !== level) {
+      level = newLevel;
+      applyLevel();
+    }
+  }
+
+  function ghostY() {
+    let y = current.y;
+    while (!collides({ ...current, y: y + 1 })) y++;
+    return y;
+  }
+
+  function drawBlock(c, x, y, size, color, alpha = 1) {
+    c.globalAlpha = alpha;
+    c.fillStyle = color;
+    c.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+    c.fillStyle = 'rgba(255,255,255,.18)';
+    c.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+    c.globalAlpha = 1;
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0a0e1a';
+    ctx.fillRect(0, 0, boardCanvas.width, boardCanvas.height);
+
+    ctx.strokeStyle = '#141b2e';
+    ctx.lineWidth = 1;
+    for (let x = 1; x < COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * BLOCK + .5, 0);
+      ctx.lineTo(x * BLOCK + .5, ROWS * BLOCK);
+      ctx.stroke();
+    }
+    for (let y = 1; y < ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * BLOCK + .5);
+      ctx.lineTo(COLS * BLOCK, y * BLOCK + .5);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (grid[y][x]) drawBlock(ctx, x, y, BLOCK, COLORS[grid[y][x]]);
+      }
+    }
+
+    if (current && state !== 'over') {
+      const gy = ghostY();
+      for (const [x, y] of cells({ ...current, y: gy })) {
+        if (y >= 0) drawBlock(ctx, x, y, BLOCK, COLORS[current.type], .2);
+      }
+      for (const [x, y] of cells(current)) {
+        if (y >= 0) drawBlock(ctx, x, y, BLOCK, COLORS[current.type]);
+      }
+    }
+
+    nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+    if (nextType) {
+      for (const [x, y] of PIECES[nextType][0]) {
+        drawBlock(nextCtx, x, y + 1, 24, COLORS[nextType]);
+      }
+    }
+
+    scoreEl.textContent = score;
+    linesEl.textContent = lines;
+    bestEl.textContent = Math.max(best, score);
+  }
+
+  function loop(time = 0) {
+    const delta = time - lastTime;
+    lastTime = time;
+
+    if (state === 'playing') {
+      dropCounter += delta;
+      if (dropCounter > dropInterval) {
+        if (!move(0, 1)) lock();
+        dropCounter = 0;
+      }
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function showOverlay(title, text, button) {
+    overlayTitle.textContent = title;
+    overlayText.textContent = text;
+    startBtn.textContent = button;
+    overlay.classList.remove('hidden');
+  }
+
+  function start() {
+    grid = emptyGrid();
+    bag = [];
+    nextType = null;
+    score = 0;
+    lines = 0;
+    level = 1;
+    applyLevel();
+    spawn();
+    dropCounter = 0;
+    state = 'playing';
+    overlay.classList.add('hidden');
+  }
+
+  function togglePause() {
+    if (state === 'playing') {
+      state = 'paused';
+      showOverlay('Pausa', 'Presiona P para continuar.', 'Continuar');
+    } else if (state === 'paused') {
+      state = 'playing';
+      overlay.classList.add('hidden');
+    }
+  }
+
+  function gameOver() {
+    state = 'over';
+    if (score > best) {
+      best = score;
+      saveBest();
+    }
+    showOverlay('Fin del juego', `Puntos: ${score} · Líneas: ${lines}`, 'Otra vez');
+  }
+
+  function handle(action) {
+    if (action === 'pause') {
+      togglePause();
+      return;
+    }
+    if (state !== 'playing') return;
+    switch (action) {
+      case 'left': move(-1, 0); break;
+      case 'right': move(1, 0); break;
+      case 'down': softDrop(); break;
+      case 'rotate': rotate(); break;
+      case 'drop': hardDrop(); break;
+    }
+  }
+
+  const KEYS = {
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+    ArrowDown: 'down',
+    ArrowUp: 'rotate',
+    KeyX: 'rotate',
+    Space: 'drop',
+    KeyP: 'pause',
+  };
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.code === 'Enter' || e.code === 'Space') && (state === 'idle' || state === 'over')) {
+      e.preventDefault();
+      start();
+      return;
+    }
+    if (e.code === 'Enter' && state === 'paused') {
+      togglePause();
+      return;
+    }
+    const action = KEYS[e.code];
+    if (!action) return;
+    e.preventDefault();
+    handle(action);
+  });
+
+  startBtn.addEventListener('click', () => {
+    if (state === 'paused') togglePause();
+    else start();
+  });
+
+  document.querySelectorAll('.touch button').forEach((btn) => {
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle(btn.dataset.action);
+    });
+  });
+
+  grid = emptyGrid();
+  score = 0;
+  lines = 0;
+  bestEl.textContent = best;
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
